@@ -1121,3 +1121,33 @@ class Classify(nn.Module):
         if isinstance(x, list):
             x = torch.cat(x, 1)
         return self.linear(self.drop(self.pool(self.conv(x)).flatten(1)))
+
+
+class quant(torch.autograd.Function):
+    @staticmethod
+    @torch.cuda.amp.custom_fwd
+    def forward(ctx, i, min_value=0, max_value=4): #1111
+        ctx.min = min_value
+        ctx.max = max_value
+        ctx.save_for_backward(i)
+        return torch.round(torch.clamp(i, min=min_value, max=max_value))
+
+    @staticmethod
+    @torch.cuda.amp.custom_fwd
+    def backward(ctx, grad_output):
+        grad_input = grad_output.clone()
+        i, = ctx.saved_tensors
+        grad_input[i < ctx.min] = 0
+        grad_input[i > ctx.max] = 0
+        return grad_input, None, None
+
+
+class Quant(nn.Module):
+    def __init__(self, min_value=0, max_value=4, spiking=True):
+        super().__init__()
+        self.min = min_value
+        self.max = max_value
+        self.spiking = spiking
+
+    def forward(self, x):
+        return quant.apply(x, self.min, self.max)
